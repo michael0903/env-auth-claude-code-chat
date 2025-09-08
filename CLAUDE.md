@@ -108,24 +108,18 @@ claude mcp add contextforge python3 ~/.local/bin/contextforge -s project
 
 **Remember**: ContextForge only becomes autonomous when the AI consistently uses these tools. Use them proactively after every significant response.
 
-## Git Workflow - GitHub Fork
+## Git Workflow - Public Fork
 
-This project can be configured as either a read-only local clone or a proper GitHub fork for tracking your changes.
+This is a public fork of claude-code-chat that removes web UI authentication prompts for environment-based authentication setups.
 
-### Option 1: Read-Only Local Clone (Current Setup)
+### Repository Structure
 
-**Configuration:**
-- **Push URL**: Set to `no-push` to prevent accidental pushes
-- **Fetch URL**: Points to original repository for pulling updates
-- **Use case**: Local modifications only, no version control of changes
+**Current Configuration:**
+- **Origin**: `git@github.com:michael0903/trend-claude-code-chat.git` (this fork)  
+- **Upstream**: `https://github.com/andrepimenta/claude-code-chat.git` (original project)
+- **Push to upstream**: Disabled to prevent accidental pushes
 
-**Syncing:**
-```bash
-git fetch origin
-git pull origin main
-```
-
-### Option 2: Proper GitHub Fork (Recommended)
+### Development Workflow
 
 **Setup Steps:**
 1. Fork the repository on GitHub: https://github.com/andrepimenta/claude-code-chat
@@ -138,10 +132,13 @@ git remote set-url --push origin https://github.com/andrepimenta/claude-code-cha
 # Rename current remote to upstream
 git remote rename origin upstream
 
-# Add your fork as origin (replace 'yourusername')
-git remote add origin https://github.com/yourusername/claude-code-chat.git
+# Add your fork as origin
+git remote add origin git@github.com:michael0903/trend-claude-code-chat.git
 
-# Push your changes to your fork
+# Disable push to upstream (private fork, no contributions back)
+git remote set-url --push upstream no-push
+
+# Push your changes to your private fork
 git push -u origin main
 ```
 
