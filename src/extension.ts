@@ -316,10 +316,10 @@ class ClaudeChatProvider {
 				this._loadMCPServers();
 				return;
 			case 'saveMCPServer':
-				this._saveMCPServer(message.name, message.config);
+				this._openMCPManagement();
 				return;
 			case 'deleteMCPServer':
-				this._deleteMCPServer(message.name);
+				this._openMCPManagement();
 				return;
 			case 'getCustomSnippets':
 				this._sendCustomSnippets();
@@ -1110,7 +1110,7 @@ class ClaudeChatProvider {
 			const storagePath = this._context.storageUri?.fsPath;
 			if (!storagePath) { return; }
 
-			// Create MCP config directory
+			// Create MCP config directory for our merged config
 			const mcpConfigDir = path.join(storagePath, 'mcp');
 			try {
 				await vscode.workspace.fs.stat(vscode.Uri.file(mcpConfigDir));
@@ -1119,30 +1119,14 @@ class ClaudeChatProvider {
 				console.log(`Created MCP config directory at: ${mcpConfigDir}`);
 			}
 
-			// Create or update mcp-servers.json with permissions server, preserving existing servers
-			const mcpConfigPath = path.join(mcpConfigDir, 'mcp-servers.json');
+			// Read Claude CLI's native MCP configurations (all three scopes)
+			const mergedConfig = await this._readNativeMCPConfigs();
+
+			// Add our permissions server to the merged config
 			const mcpPermissionsPath = this.convertToWSLPath(path.join(this._extensionUri.fsPath, 'mcp-permissions.js'));
 			const permissionRequestsPath = this.convertToWSLPath(path.join(storagePath, 'permission-requests'));
 
-			// Load existing config or create new one
-			let mcpConfig: any = { mcpServers: {} };
-			const mcpConfigUri = vscode.Uri.file(mcpConfigPath);
-
-			try {
-				const existingContent = await vscode.workspace.fs.readFile(mcpConfigUri);
-				mcpConfig = JSON.parse(new TextDecoder().decode(existingContent));
-				console.log('Loaded existing MCP config, preserving user servers');
-			} catch {
-				console.log('No existing MCP config found, creating new one');
-			}
-
-			// Ensure mcpServers exists
-			if (!mcpConfig.mcpServers) {
-				mcpConfig.mcpServers = {};
-			}
-
-			// Add or update the permissions server entry
-			mcpConfig.mcpServers['claude-code-chat-permissions'] = {
+			mergedConfig.mcpServers['claude-code-chat-permissions'] = {
 				command: 'node',
 				args: [mcpPermissionsPath],
 				env: {
@@ -1150,12 +1134,77 @@ class ClaudeChatProvider {
 				}
 			};
 
-			const configContent = new TextEncoder().encode(JSON.stringify(mcpConfig, null, 2));
-			await vscode.workspace.fs.writeFile(mcpConfigUri, configContent);
+			// Write the merged config (native + our permissions server)
+			const mcpConfigPath = path.join(mcpConfigDir, 'mcp-servers.json');
+			const configContent = new TextEncoder().encode(JSON.stringify(mergedConfig, null, 2));
+			await vscode.workspace.fs.writeFile(vscode.Uri.file(mcpConfigPath), configContent);
 
-			console.log(`Updated MCP config at: ${mcpConfigPath}`);
+			console.log(`Created merged MCP config at: ${mcpConfigPath} with ${Object.keys(mergedConfig.mcpServers).length} servers`);
 		} catch (error: any) {
 			console.error('Failed to initialize MCP config:', error.message);
+		}
+	}
+
+	private async _readNativeMCPConfigs(): Promise<any> {
+		// Initialize empty config
+		let mergedConfig: any = { mcpServers: {} };
+
+		try {
+			// 1. User scope: Read from user-wide configuration
+			const userConfig = await this._readUserMCPConfig();
+			if (userConfig?.mcpServers) {
+				Object.assign(mergedConfig.mcpServers, userConfig.mcpServers);
+				console.log(`Loaded ${Object.keys(userConfig.mcpServers).length} user-scoped MCP servers`);
+			}
+
+			// 2. Project scope: Read from .mcp.json in workspace root
+			const projectConfig = await this._readProjectMCPConfig();
+			if (projectConfig?.mcpServers) {
+				Object.assign(mergedConfig.mcpServers, projectConfig.mcpServers);
+				console.log(`Loaded ${Object.keys(projectConfig.mcpServers).length} project-scoped MCP servers`);
+			}
+
+			// 3. Local scope: Read from project-specific user settings
+			// Note: Claude CLI stores local scope in user-specific project settings
+			// This is harder to locate without Claude CLI's internal logic, so we'll 
+			// primarily rely on user and project scopes for now
+
+			console.log(`Total native MCP servers loaded: ${Object.keys(mergedConfig.mcpServers).length}`);
+		} catch (error: any) {
+			console.error('Error reading native MCP configs:', error.message);
+		}
+
+		return mergedConfig;
+	}
+
+	private async _readUserMCPConfig(): Promise<any> {
+		try {
+			// User scope config location (cross-project)
+			const os = require('os');
+			const userConfigPath = path.join(os.homedir(), '.claude', 'mcp_servers.json');
+			
+			const configUri = vscode.Uri.file(userConfigPath);
+			const content = await vscode.workspace.fs.readFile(configUri);
+			return JSON.parse(new TextDecoder().decode(content));
+		} catch {
+			// File doesn't exist or can't be read
+			return null;
+		}
+	}
+
+	private async _readProjectMCPConfig(): Promise<any> {
+		try {
+			// Project scope: .mcp.json in workspace root
+			const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+			if (!workspaceFolder) { return null; }
+
+			const projectConfigPath = path.join(workspaceFolder.uri.fsPath, '.mcp.json');
+			const configUri = vscode.Uri.file(projectConfigPath);
+			const content = await vscode.workspace.fs.readFile(configUri);
+			return JSON.parse(new TextDecoder().decode(content));
+		} catch {
+			// File doesn't exist or can't be read
+			return null;
 		}
 	}
 
@@ -1577,119 +1626,56 @@ class ClaudeChatProvider {
 
 	private async _loadMCPServers(): Promise<void> {
 		try {
-			const mcpConfigPath = this.getMCPConfigPath();
-			if (!mcpConfigPath) {
-				this._postMessage({ type: 'mcpServers', data: {} });
-				return;
-			}
-
-			const mcpConfigUri = vscode.Uri.file(mcpConfigPath);
-			let mcpConfig: any = { mcpServers: {} };
-
-			try {
-				const content = await vscode.workspace.fs.readFile(mcpConfigUri);
-				mcpConfig = JSON.parse(new TextDecoder().decode(content));
-			} catch (error) {
-				console.log('MCP config file not found or error reading:', error);
-				// File doesn't exist, return empty servers
-			}
-
-			// Filter out internal servers before sending to UI
+			// Read Claude CLI's native MCP configurations
+			const nativeConfig = await this._readNativeMCPConfigs();
+			
+			// Filter out our internal permissions server before sending to UI
 			const filteredServers = Object.fromEntries(
-				Object.entries(mcpConfig.mcpServers || {}).filter(([name]) => name !== 'claude-code-chat-permissions')
+				Object.entries(nativeConfig.mcpServers || {}).filter(([name]) => name !== 'claude-code-chat-permissions')
 			);
-			this._postMessage({ type: 'mcpServers', data: filteredServers });
+
+			// Send the native servers to UI with a note that they're managed by Claude CLI
+			this._postMessage({ 
+				type: 'mcpServers', 
+				data: {
+					servers: filteredServers,
+					isNativeConfig: true,
+					managementNote: 'MCP servers are managed through Claude CLI. Use "Manage MCP Servers" to add/remove servers.'
+				}
+			});
 		} catch (error) {
-			console.error('Error loading MCP servers:', error);
-			this._postMessage({ type: 'mcpServerError', data: { error: 'Failed to load MCP servers' } });
+			console.error('Error loading native MCP servers:', error);
+			this._postMessage({ type: 'mcpServerError', data: { error: 'Failed to load native MCP servers' } });
 		}
 	}
 
-	private async _saveMCPServer(name: string, config: any): Promise<void> {
-		try {
-			const mcpConfigPath = this.getMCPConfigPath();
-			if (!mcpConfigPath) {
-				this._postMessage({ type: 'mcpServerError', data: { error: 'Storage path not available' } });
-				return;
-			}
+	private _openMCPManagement(): void {
+		const config = vscode.workspace.getConfiguration('claudeCodeChat');
+		const wslEnabled = config.get<boolean>('wsl.enabled', false);
+		const wslDistro = config.get<string>('wsl.distro', 'Ubuntu');
+		const nodePath = config.get<string>('wsl.nodePath', '/usr/bin/node');
+		const claudePath = config.get<string>('wsl.claudePath', '/usr/local/bin/claude');
 
-			const mcpConfigUri = vscode.Uri.file(mcpConfigPath);
-			let mcpConfig: any = { mcpServers: {} };
-
-			// Load existing config
-			try {
-				const content = await vscode.workspace.fs.readFile(mcpConfigUri);
-				mcpConfig = JSON.parse(new TextDecoder().decode(content));
-			} catch {
-				// File doesn't exist, use default structure
-			}
-
-			// Ensure mcpServers exists
-			if (!mcpConfig.mcpServers) {
-				mcpConfig.mcpServers = {};
-			}
-
-			// Add/update the server
-			mcpConfig.mcpServers[name] = config;
-
-			// Ensure directory exists
-			const mcpDir = vscode.Uri.file(path.dirname(mcpConfigPath));
-			try {
-				await vscode.workspace.fs.stat(mcpDir);
-			} catch {
-				await vscode.workspace.fs.createDirectory(mcpDir);
-			}
-
-			// Save the config
-			const configContent = new TextEncoder().encode(JSON.stringify(mcpConfig, null, 2));
-			await vscode.workspace.fs.writeFile(mcpConfigUri, configContent);
-
-			this._postMessage({ type: 'mcpServerSaved', data: { name } });
-			console.log(`Saved MCP server: ${name}`);
-		} catch (error) {
-			console.error('Error saving MCP server:', error);
-			this._postMessage({ type: 'mcpServerError', data: { error: 'Failed to save MCP server' } });
+		// Open terminal with Claude CLI MCP management
+		const terminal = vscode.window.createTerminal('Claude MCP Management');
+		if (wslEnabled) {
+			terminal.sendText(`wsl -d ${wslDistro} ${nodePath} --no-warnings --enable-source-maps ${claudePath} mcp list`);
+		} else {
+			terminal.sendText('claude mcp list');
 		}
-	}
+		terminal.show();
 
-	private async _deleteMCPServer(name: string): Promise<void> {
-		try {
-			const mcpConfigPath = this.getMCPConfigPath();
-			if (!mcpConfigPath) {
-				this._postMessage({ type: 'mcpServerError', data: { error: 'Storage path not available' } });
-				return;
-			}
+		// Show info message
+		vscode.window.showInformationMessage(
+			'Use "claude mcp add/remove/list" commands in the terminal to manage MCP servers. The extension will automatically sync changes.',
+			'OK'
+		);
 
-			const mcpConfigUri = vscode.Uri.file(mcpConfigPath);
-			let mcpConfig: any = { mcpServers: {} };
-
-			// Load existing config
-			try {
-				const content = await vscode.workspace.fs.readFile(mcpConfigUri);
-				mcpConfig = JSON.parse(new TextDecoder().decode(content));
-			} catch {
-				// File doesn't exist, nothing to delete
-				this._postMessage({ type: 'mcpServerError', data: { error: 'MCP config file not found' } });
-				return;
-			}
-
-			// Delete the server
-			if (mcpConfig.mcpServers && mcpConfig.mcpServers[name]) {
-				delete mcpConfig.mcpServers[name];
-
-				// Save the updated config
-				const configContent = new TextEncoder().encode(JSON.stringify(mcpConfig, null, 2));
-				await vscode.workspace.fs.writeFile(mcpConfigUri, configContent);
-
-				this._postMessage({ type: 'mcpServerDeleted', data: { name } });
-				console.log(`Deleted MCP server: ${name}`);
-			} else {
-				this._postMessage({ type: 'mcpServerError', data: { error: `Server '${name}' not found` } });
-			}
-		} catch (error) {
-			console.error('Error deleting MCP server:', error);
-			this._postMessage({ type: 'mcpServerError', data: { error: 'Failed to delete MCP server' } });
-		}
+		// Send message to UI about terminal
+		this._postMessage({
+			type: 'terminalOpened',
+			data: 'MCP server management opened in terminal. Use "claude mcp" commands to add/remove servers.'
+		});
 	}
 
 	private async _sendCustomSnippets(): Promise<void> {
