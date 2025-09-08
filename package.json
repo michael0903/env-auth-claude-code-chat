@@ -1,13 +1,13 @@
 {
-  "name": "claude-code-chat",
-  "displayName": "Claude Code Chat",
-  "description": "Beautiful Claude Code Chat Interface for VS Code",
-  "version": "1.0.6",
-  "publisher": "AndrePimenta",
-  "author": "Andre Pimenta",
+  "name": "claude-code-chat-env-auth",
+  "displayName": "Claude Code Chat (Environment Auth)",
+  "description": "Claude Code Chat modified for environment-based authentication - prepared for organizational use",
+  "version": "1.0.6-env-auth",
+  "publisher": "michael0903",
+  "author": "Michael Fu (based on original by Andre Pimenta)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andrepimenta/claude-code-chat"
+    "url": "https://github.com/michael0903/env-auth-claude-code-chat"
   },
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
@@ -185,21 +185,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Yolo Mode to skip all permission checks. Use with caution as Claude can execute any command without asking."
-        },
-        "claudeCodeChat.api.key": {
-          "type": "string",
-          "default": "",
-          "description": "API key for your organization's Claude endpoint"
-        },
-        "claudeCodeChat.api.endpoint": {
-          "type": "string",
-          "default": "https://api.anthropic.com/v1/messages",
-          "description": "Your organization's Claude API endpoint URL"
-        },
-        "claudeCodeChat.api.useApiMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use direct API calls instead of Claude CLI"
         }
       }
     }

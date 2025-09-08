@@ -1,14 +1,26 @@
-# 🚀 Claude Code Chat - Beautiful Claude Code Chat Interface for VS Code
+# 🚀 Claude Code Chat (Environment Auth) - Organizational Version
 
-[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-blue?style=for-the-badge&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=andrepimenta.claude-code-chat)
 [![Claude Code](https://img.shields.io/badge/Powered%20by-Claude%20Code-orange?style=for-the-badge)](https://claude.ai/code)
 [![TypeScript](https://img.shields.io/badge/Built%20with-TypeScript-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Fork](https://img.shields.io/badge/Fork%20of-claude--code--chat-blue?style=for-the-badge)](https://github.com/andrepimenta/claude-code-chat)
 
-> **No more terminal commands. Chat with Claude Code through a beautiful, intuitive interface right inside VS Code.**
+> **Organizational version of Claude Code Chat modified for environment-based authentication setups.**
 
-Ditch the command line and experience Claude Code like never before. This extension brings a stunning chat interface directly into your editor, making AI assistance accessible, visual, and enjoyable.
+This is a modified version of the original [claude-code-chat](https://github.com/andrepimenta/claude-code-chat) extension, **prepared by Michael Fu for organizational use**. This version removes web UI authentication prompts and works seamlessly with environment-based Claude CLI authentication.
 
-🤖 **Built by Claude Code for Claude Code** - This extension was entirely developed using Claude Code itself. Claude Code created its own chat interface!
+## 🔧 **Key Differences from Original**
+
+✅ **No Web UI Authentication** - Removed browser login prompts and terminal authentication flows  
+✅ **Environment-Based Auth** - Works with pre-configured Claude CLI authentication  
+✅ **Organizational Ready** - Perfect for corporate environments with custom authentication  
+✅ **All Features Preserved** - Maintains complete Claude CLI functionality (tools, MCP, permissions, etc.)
+
+## 🏢 **Organizational Use**
+
+**Prepared by:** Michael Fu  
+**Based on:** [Original claude-code-chat](https://github.com/andrepimenta/claude-code-chat) by Andre Pimenta  
+**Purpose:** Environment authentication for organizational deployments  
+**Repository:** https://github.com/michael0903/env-auth-claude-code-chat
 
 ---
 
