@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as util from 'util';
 import * as path from 'path';
 import getHtml from './ui';
+import { ClaudeApiClient } from './api-client';
 
 const exec = util.promisify(cp.exec);
 
@@ -125,6 +126,7 @@ class ClaudeChatProvider {
 		lastUserMessage: string
 	}> = [];
 	private _currentClaudeProcess: cp.ChildProcess | undefined;
+	private _apiClient: ClaudeApiClient | undefined;
 	private _selectedModel: string = 'default'; // Default model
 	private _isProcessing: boolean | undefined;
 	private _draftMessage: string = '';
@@ -409,9 +411,10 @@ class ClaudeChatProvider {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		const cwd = workspaceFolder ? workspaceFolder.uri.fsPath : process.cwd();
 
-		// Get thinking intensity setting
-		const configThink = vscode.workspace.getConfiguration('claudeCodeChat');
-		const thinkingIntensity = configThink.get<string>('thinking.intensity', 'think');
+		// Get configuration
+		const config = vscode.workspace.getConfiguration('claudeCodeChat');
+		const useApiMode = config.get<boolean>('api.useApiMode', false);
+		const thinkingIntensity = config.get<string>('thinking.intensity', 'think');
 
 		// Prepend mode instructions if enabled
 		let actualMessage = message;
@@ -471,14 +474,19 @@ class ClaudeChatProvider {
 			data: 'Claude is working...'
 		});
 
-		// Build command arguments with session management
+		// Check if we should use API mode
+		if (useApiMode) {
+			await this._sendMessageViaApi(actualMessage);
+			return;
+		}
+
+		// Build command arguments with session management (CLI mode)
 		const args = [
 			'-p',
 			'--output-format', 'stream-json', '--verbose'
 		];
 
-		// Get configuration
-		const config = vscode.workspace.getConfiguration('claudeCodeChat');
+		// Get configuration for CLI mode
 		const yoloMode = config.get<boolean>('permissions.yoloMode', false);
 
 		if (yoloMode) {
@@ -652,6 +660,77 @@ class ClaudeChatProvider {
 				});
 			}
 		});
+	}
+
+	private async _sendMessageViaApi(message: string): Promise<void> {
+		try {
+			// Initialize API client if not already done
+			if (!this._apiClient) {
+				this._apiClient = new ClaudeApiClient();
+			}
+
+			// Get or create session ID
+			if (!this._currentSessionId) {
+				this._currentSessionId = this._apiClient.getSessionId();
+			}
+
+			// Determine model to use
+			let modelToUse = 'claude-3-5-sonnet-20241022'; // Default to latest Sonnet
+			if (this._selectedModel === 'opus') {
+				modelToUse = 'claude-3-opus-20240229';
+			} else if (this._selectedModel === 'sonnet') {
+				modelToUse = 'claude-3-5-sonnet-20241022';
+			}
+
+			const startTime = Date.now();
+
+			// Send message via API with streaming
+			await this._apiClient.sendMessage(
+				message,
+				(jsonData: any) => {
+					// Process streaming data similar to CLI output
+					this._processJsonStreamData(jsonData);
+				},
+				modelToUse
+			);
+
+			// Clear processing state
+			this._isProcessing = false;
+			this._postMessage({
+				type: 'clearLoading'
+			});
+			this._postMessage({
+				type: 'setProcessing',
+				data: { isProcessing: false }
+			});
+
+		} catch (error: any) {
+			console.error('API Error:', error);
+			
+			// Clear processing state
+			this._isProcessing = false;
+			this._postMessage({
+				type: 'clearLoading'
+			});
+			this._postMessage({
+				type: 'setProcessing',
+				data: { isProcessing: false }
+			});
+
+			// Show error to user
+			this._sendAndSaveMessage({
+				type: 'error',
+				data: `API Error: ${error.message}`
+			});
+
+			// Check if it's an authentication error
+			if (error.message.includes('API key')) {
+				this._postMessage({
+					type: 'error',
+					data: 'Please configure your API key in VS Code settings: claudeCodeChat.api.key'
+				});
+			}
+		}
 	}
 
 	private _processJsonStreamData(jsonData: any) {
@@ -881,6 +960,11 @@ class ClaudeChatProvider {
 			const processToKill = this._currentClaudeProcess;
 			this._currentClaudeProcess = undefined;
 			processToKill.kill('SIGTERM');
+		}
+
+		// Clear API client session if using API mode
+		if (this._apiClient) {
+			this._apiClient.newSession();
 		}
 
 		// Clear current session
